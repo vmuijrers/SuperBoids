@@ -1,0 +1,72 @@
+// Each #kernel tells which function to compile; you can have many kernels
+#pragma kernel CSMain
+
+struct BoidData
+{
+    float3 pos;
+    float3 desiredDir;
+    float3 curDir;
+};
+
+// Create a RenderTexture with enableRandomWrite flag and set it
+// with cs.SetTexture
+RWStructuredBuffer<BoidData> Data;
+float Weights[4];
+int NumBoids;
+float Radius;
+float3 BorderCenter;
+float3 BorderSize;
+
+float sqrmag(float3 p1, float3 p2)
+{
+    return (p1.x - p2.x) * (p1.x - p2.x) +
+    (p1.y - p2.y) * (p1.y - p2.y) +
+    (p1.z - p2.z) * (p1.z - p2.z);
+}
+
+bool IsPointInBounds(float3 p, float3 center, float3 size)
+{
+    float halfX = size.x * 0.5;
+    float halfY = size.y * 0.5;
+    float halfZ = size.z * 0.5;
+    return (p.x > center.x - halfX && p.x < center.x + halfX &&
+        p.y > center.y - halfY && p.y < center.y + halfY &&
+        p.z > center.z - halfZ && p.z < center.z + halfZ);
+}
+
+[numthreads(256,1,1)]
+void CSMain (uint3 id : SV_DispatchThreadID)
+{
+    float3 coh = float3(0, 0, 0);
+    float3 sep = float3(0, 0, 0);
+    float3 align = float3(0, 0, 0);
+    float3 border = float3(0, 0, 0);
+    int numSep = 0;
+    float num = 2048;
+    Radius = 10;
+    for (int i = 0; i < num; i++)
+    {
+        coh += Data[i].pos;
+        align += Data[i].curDir;
+        if (sqrmag(Data[i].pos, Data[id.x].pos) <= Radius * Radius)
+        {
+            sep += Data[id.x].pos - Data[i].pos;
+            numSep++;
+        }
+    }
+    //Apply Bounds
+    if (!IsPointInBounds(Data[id.x].pos, BorderCenter, BorderSize))
+    {
+        border = BorderCenter - Data[id.x].pos;
+    }
+    coh = ((coh / num) - Data[id.x].pos) * Weights[0];
+    sep = (sep / numSep) * Weights[1];
+    align = (align / num) * Weights[2];
+    border *= Weights[3];
+    
+    BoidData data = Data[id.x];
+    data.desiredDir = (coh + sep + align + border) / 4.0;
+    Data[id.x] = data;
+}
+
+
