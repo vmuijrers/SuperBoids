@@ -3,11 +3,15 @@ using UnityEngine;
 
 public class Boid : MonoBehaviour
 {
+    public GameObject[] art;
     public Vector3 direction;
     public Vector3 desiredDirection;
     public float rotationSpeed = 360f;
     public float moveSpeed = 1;
     public float radius = 5f;
+
+    private Vector3 acceleration;
+    private Vector3 velocity;
 
     public BoidData data = new BoidData();
     public struct BoidData
@@ -19,22 +23,36 @@ public class Boid : MonoBehaviour
     // Start is called before the first frame update
     void Start()
     {
+        int rnd = Random.Range(0, art.Length);
+        art[rnd].SetActive(true);
         data = new BoidData();
         data.pos = transform.position;
         data.curDir = transform.forward;
         data.desiredDir = Random.insideUnitSphere;
     }
+
+    /// <summary>
+    /// This function uses the data from the Compute Shader
+    /// </summary>
+    /// <param name="data"></param>
     public void UpdateData(BoidData data)
     {
-        if(data.desiredDir.sqrMagnitude > Mathf.Epsilon)
+        acceleration += data.desiredDir / rotationSpeed;
+
+        velocity += acceleration;
+        acceleration = Vector3.zero;
+
+        if (data.desiredDir.sqrMagnitude > Mathf.Epsilon)
         {
-            transform.rotation = Quaternion.LookRotation(data.desiredDir.normalized);// Quaternion.RotateTowards(transform.rotation, Quaternion.LookRotation(data.desiredDir), rotationSpeed * Time.deltaTime);
+            transform.rotation = Quaternion.LookRotation(velocity);// Quaternion.RotateTowards(transform.rotation, Quaternion.LookRotation(data.desiredDir), rotationSpeed * Time.deltaTime);
         }
-        transform.position += transform.forward * moveSpeed * Time.deltaTime;
+        velocity = Vector3.ClampMagnitude(velocity, moveSpeed);
+        transform.position += velocity * Time.deltaTime;
         this.data.pos = transform.position;
         this.data.curDir = transform.forward;
     }
 
+    //Old stuff below for a naive implementation
     public void UpdateBoid(List<Boid> boids, List<float> weights, Bounds bounds)
     {
         Vector3 coh = Cohesion(boids) * weights[0];

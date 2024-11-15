@@ -14,6 +14,7 @@ RWStructuredBuffer<BoidData> Data;
 float Weights[4];
 int NumBoids;
 float Radius;
+float BigRadius;
 float3 BorderCenter;
 float3 BorderSize;
 
@@ -42,27 +43,42 @@ void CSMain (uint3 id : SV_DispatchThreadID)
     float3 align = float3(0, 0, 0);
     float3 border = float3(0, 0, 0);
     int numSep = 0;
-    float num = 2048;
-    Radius = 10;
-    for (int i = 0; i < num; i++)
+    int numAlign = 0;
+    int numCoh = 0;
+    for (int i = 0; i < NumBoids; i++)
     {
-        coh += Data[i].pos;
-        align += Data[i].curDir;
-        if (sqrmag(Data[i].pos, Data[id.x].pos) <= Radius * Radius)
+        float dist = sqrmag(Data[i].pos, Data[id.x].pos);
+        if (dist <= Radius * Radius && dist > 0)
         {
-            sep += Data[id.x].pos - Data[i].pos;
+            sep += (Data[id.x].pos - Data[i].pos) / dist;
             numSep++;
         }
+        if (dist <= BigRadius * BigRadius && dist > 0)
+        {
+            align += Data[i].curDir;
+            numAlign++;
+            coh += Data[i].pos;
+            numCoh++;
+        }
     }
+
+    if (numCoh != 0)
+    {
+        coh = normalize((coh / numCoh) - Data[id.x].pos) * Weights[0];
+    }
+    if (numSep != 0)
+    {
+        sep = normalize(sep / numSep) * Weights[1];
+    }
+    if (numAlign != 0)
+    {
+        align = normalize((align - Data[id.x].curDir) / numAlign) * Weights[2];
+    } 
     //Apply Bounds
     if (!IsPointInBounds(Data[id.x].pos, BorderCenter, BorderSize))
     {
-        border = BorderCenter - Data[id.x].pos;
+        border = normalize(BorderCenter - Data[id.x].pos) * Weights[3];
     }
-    coh = ((coh / num) - Data[id.x].pos) * Weights[0];
-    sep = (sep / numSep) * Weights[1];
-    align = (align / num) * Weights[2];
-    border *= Weights[3];
     
     BoidData data = Data[id.x];
     data.desiredDir = (coh + sep + align + border) / 4.0;

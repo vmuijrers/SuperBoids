@@ -9,10 +9,13 @@ public class BoidManager : MonoBehaviour
     public int numGroups = 3;
     public int boidsPerGroup = 20;
     public float radius = 5;
+    public float bigRadius = 20;
     public List<float> weights = new List<float>();
     public Bounds bounds;
     public ComputeShader computeShader;
-    ComputeBuffer buffer;
+    private ComputeBuffer buffer;
+    private int numThreads = 256;
+    private int boidIncrease = 128;
 
     // Start is called before the first frame update
     void Start()
@@ -26,7 +29,6 @@ public class BoidManager : MonoBehaviour
         computeShader.SetBuffer(0, "Data", buffer);
 
         computeShader.SetInt("NumBoids", boidsPerGroup);
-        computeShader.SetFloat("Radius", radius);
         computeShader.SetVector("BorderCenter", new Vector4(bounds.center.x, bounds.center.y, bounds.center.z, 0));
         computeShader.SetVector("BorderSize", new Vector4(bounds.size.x, bounds.size.y, bounds.size.z, 0));
     }
@@ -34,6 +36,18 @@ public class BoidManager : MonoBehaviour
     // Update is called once per frame
     void Update()
     {
+        if (Input.GetKeyDown(KeyCode.Space))
+        {
+            boidsPerGroup += boidIncrease;
+            flocks[0].AddBoids(CreateBoidsList(boidIncrease));
+            if (buffer != null)
+            {
+                buffer.Release();
+            }
+            computeShader.SetInt("NumBoids", boidsPerGroup);
+            buffer = new ComputeBuffer(boidsPerGroup, System.Runtime.InteropServices.Marshal.SizeOf(typeof(Boid.BoidData)));
+            computeShader.SetBuffer(0, "Data", buffer);
+        }
 
         //Fill the buffer
         Boid.BoidData[] dataList = new Boid.BoidData[boidsPerGroup];
@@ -51,10 +65,20 @@ public class BoidManager : MonoBehaviour
                 i++;
             }
         }
-        computeShader.SetFloats("Weights", weights.ToArray());
+        float[] vecs = new float[weights.Count * 4];
+        for(int i = 0; i < weights.Count; i++)
+        {
+            vecs[i * 4] = weights[i];
+            for(int j = 1; j <= 3; j++)
+            {
+                vecs[i * 4 + j] = 0;
+            }
+        }
+        computeShader.SetFloat("Radius", radius);
+        computeShader.SetFloat("BigRadius", bigRadius);
+        computeShader.SetFloats("Weights", vecs);
         buffer.SetData(dataList);
         //Dispatch to compute shader
-        int numThreads = 256;
         int numGroups = Mathf.CeilToInt(boidsPerGroup / (float)numThreads);
         computeShader.Dispatch(0, numGroups, 1, 1);
 
@@ -72,6 +96,18 @@ public class BoidManager : MonoBehaviour
         }
     }
 
+    private void OnGUI()
+    {
+        GUI.Label(new Rect(10, 10, 200, 50), "coh: " + weights[0]);
+        GUI.Label(new Rect(10, 30, 200, 50), "sep: " + weights[1]);
+        GUI.Label(new Rect(10, 50, 200, 50), "ali: " + weights[2]);
+        GUI.Label(new Rect(10, 70, 200, 50), "bor: " + weights[3]);
+        GUI.Label(new Rect(10, 90, 200, 50), "rad: " + radius);
+        GUI.Label(new Rect(10, 110, 200, 50), "brad: " + bigRadius);
+        GUI.Label(new Rect(10, 130, 200, 50), "num: " + boidsPerGroup);
+        GUI.Label(new Rect(10, 150, 200, 50), "fps: " + (1f/Time.deltaTime).ToString("F1"));
+    }
+
     private void OnDestroy()
     {
         if(buffer != null)
@@ -80,15 +116,20 @@ public class BoidManager : MonoBehaviour
         }
     }
 
-
-    public BoidGroup CreateGroup(int id, int numBoids)
+    public List<Boid> CreateBoidsList(int amount)
     {
         List<Boid> boids = new List<Boid>();
-        for(int i = 0 ; i < numBoids; i++)
+        for (int i = 0; i < amount; i++)
         {
             Boid boid = Instantiate(BoidPrefab, transform.position + Random.insideUnitSphere * 2f, Quaternion.identity);
             boids.Add(boid);
         }
+        return boids;
+    }
+
+    public BoidGroup CreateGroup(int id, int numBoids)
+    {
+        var boids = CreateBoidsList(numBoids);
         return new BoidGroup(id, boids);
     }
 
@@ -117,5 +158,10 @@ public class BoidGroup
         {
             b.UpdateBoid(boids, weights, bounds);
         }
+    }
+
+    public void AddBoids(List<Boid> newBoids)
+    {
+        boids.AddRange(newBoids);
     }
 }
