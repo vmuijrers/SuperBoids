@@ -321,7 +321,7 @@ MonoBehaviour:
   flocks: []
   BoidPrefab: {fileID: 6099375608890014137, guid: d0e4e8617cb5d8f49b1653086f48e92c, type: 3}
   numGroups: 1
-  boidsPerGroup: 128
+  boidsPerGroup: 1024
   radius: 5
   bigRadius: 20
   weights:
