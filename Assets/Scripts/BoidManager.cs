@@ -1,6 +1,11 @@
 using System.Collections;
 using System.Collections.Generic;
+using Unity.Burst;
+using Unity.Collections;
+using Unity.Jobs;
+using Unity.Mathematics;
 using UnityEngine;
+using UnityEngine.Jobs;
 
 public class BoidManager : MonoBehaviour
 {
@@ -121,7 +126,7 @@ public class BoidManager : MonoBehaviour
         List<Boid> boids = new List<Boid>();
         for (int i = 0; i < amount; i++)
         {
-            Boid boid = Instantiate(BoidPrefab, transform.position + Random.insideUnitSphere * 2f, Quaternion.identity);
+            Boid boid = Instantiate(BoidPrefab, transform.position + UnityEngine.Random.insideUnitSphere * 2f, Quaternion.identity);
             boids.Add(boid);
         }
         return boids;
@@ -165,3 +170,7 @@ public class BoidGroup
         boids.AddRange(newBoids);
     }
 }
+
+
+
+
