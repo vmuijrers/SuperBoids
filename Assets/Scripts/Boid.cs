@@ -23,8 +23,8 @@ public class Boid : MonoBehaviour
     // Start is called before the first frame update
     void Start()
     {
-        int rnd = Random.Range(0, art.Length);
-        art[rnd].SetActive(true);
+        //int rnd = Random.Range(0, art.Length);
+        //art[rnd].SetActive(true);
         data = new BoidData();
         data.pos = transform.position;
         data.curDir = transform.forward;

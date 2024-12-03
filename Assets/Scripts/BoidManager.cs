@@ -22,10 +22,22 @@ public class BoidManager : MonoBehaviour
     private int numThreads = 256;
     private int boidIncrease = 128;
 
+    //Used for GPU Instancing
+    public Mesh mesh;
+    public Material material;
+    private List<Matrix4x4> instanceMatrices = new List<Matrix4x4>();
+    private const int maxInstancesPerBatch = 1023;
+
+
     // Start is called before the first frame update
     void Start()
     {
-        for(int i = 0; i <  numGroups; i++)
+        instanceMatrices = new List<Matrix4x4>();
+        for (int i = 0; i < boidsPerGroup; i++)
+        {
+            instanceMatrices.Add(new Matrix4x4());
+        }
+        for (int i = 0; i < numGroups; i++)
         {
             flocks.Add(CreateGroup(i, boidsPerGroup));
         }
@@ -44,6 +56,10 @@ public class BoidManager : MonoBehaviour
         if (Input.GetKeyDown(KeyCode.Space))
         {
             boidsPerGroup += boidIncrease;
+            for (int i = 0; i < boidIncrease; i++)
+            {
+                instanceMatrices.Add(new Matrix4x4());
+            }
             flocks[0].AddBoids(CreateBoidsList(boidIncrease));
             if (buffer != null)
             {
@@ -96,8 +112,25 @@ public class BoidManager : MonoBehaviour
             foreach (Boid b in boidGroup.boids)
             {
                 b.UpdateData(dataList[i]);
+                Matrix4x4 matrix = Matrix4x4.TRS(b.transform.position, b.transform.rotation, b.transform.localScale * 10);
+                instanceMatrices[i] = matrix;
                 i++;
             }
+        }
+
+    }
+
+    private void LateUpdate()
+    {
+        for (int i = 0; i < instanceMatrices.Count; i += maxInstancesPerBatch)
+        {
+            int batchSize = Mathf.Min(maxInstancesPerBatch, instanceMatrices.Count - i);
+            Graphics.DrawMeshInstanced(
+                mesh,
+                0,
+                material,
+                instanceMatrices.GetRange(i, batchSize).ToArray()
+            );
         }
     }
 

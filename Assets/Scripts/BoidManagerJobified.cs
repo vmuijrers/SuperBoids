@@ -24,25 +24,45 @@ namespace Jobified
         public Bounds bounds;
 
         private NativeArray<BoidDataJobs> boidData = new NativeArray<BoidDataJobs>();
+        private NativeArray<BoidDataJobs> outputBoidData = new NativeArray<BoidDataJobs>();
         private NativeArray<float> weightsNativeArray;
 
         private BoidJob boidJob;
 
+        //Used for GPU Instancing
+        public Mesh mesh;
+        public Material material;
+        private List<Matrix4x4> instanceMatrices = new List<Matrix4x4>();
+        private const int maxInstancesPerBatch = 1023;
+
         private void Start()
         {
+
             for (int i = 0; i < numGroups; i++)
             {
                 flocks.Add(CreateGroup(i, boidsPerGroup));
             }
 
             boidData = new NativeArray<BoidDataJobs>(boidsPerGroup, Allocator.Persistent);
+            outputBoidData = new NativeArray<BoidDataJobs>(boidsPerGroup, Allocator.Persistent);
 
             weightsNativeArray = new NativeArray<float>(weights.Count, Allocator.Persistent);
             weightsNativeArray.CopyFrom(weights.ToArray());
+
+            for(int i = 0; i < boidsPerGroup; i++)
+            {
+                instanceMatrices.Add(new Matrix4x4());
+            }
         }
 
+        private void OnDestroy()
+        {
+            if (boidData.IsCreated) { boidData.Dispose(); }
+            if (outputBoidData.IsCreated) { outputBoidData.Dispose(); }
+            if (weightsNativeArray.IsCreated) { weightsNativeArray.Dispose(); }
+        }
 
-        private void FixedUpdate()
+        private void Update()
         {
             foreach (var boidGroup in flocks)
             {
@@ -62,32 +82,55 @@ namespace Jobified
                 BigRadius = bigRadius,
                 BorderCenter = bounds.center,
                 BorderSize = bounds.size,
-                Data = boidData,
+                InputData = boidData,
+                OutputData = outputBoidData,
                 NumBoids = boidsPerGroup,
                 Radius = radius,
                 Weights = weightsNativeArray
             };
-            var jobHandle = boidJob.Schedule(boidsPerGroup, 256);
+            int numThreads = 256;
+            var jobHandle = boidJob.Schedule(boidsPerGroup, Mathf.CeilToInt(boidsPerGroup / (float)numThreads));
             jobHandle.Complete();
+
+            for (int i = 0; i < boidsPerGroup; i++)
+            {
+                boidData[i] = outputBoidData[i];
+            }
+        }
+
+        private void LateUpdate()
+        {
             foreach (var boidGroup in flocks)
             {
-                //boidGroup.UpdateBoids(weights, bounds);
                 int i = 0;
                 foreach (Boid b in boidGroup.boids)
                 {
-                    float3 desiredDir = boidJob.Data[i].desiredDir;
-                    Boid.BoidData data = new Boid.BoidData()
-                    {
-                        //desiredDir = new Vector3(desiredDir.x, desiredDir.y, desiredDir.z),
-                        desiredDir = boidJob.Data[i].desiredDir
+                    float3 desiredDir = boidData[i].desiredDir;
+                    //Boid.BoidData data = new Boid.BoidData()
+                    //{
+                    //    desiredDir = desiredDir
 
-                    };
-
-                    b.UpdateData(data);
+                    //};
+                    b.data.desiredDir = desiredDir;
+                    b.UpdateData(b.data);
+                    Matrix4x4 matrix = Matrix4x4.TRS(b.transform.position, b.transform.rotation, b.transform.localScale * 10);
+                    instanceMatrices[i] = matrix;
                     i++;
                 }
+
+            }
+            for (int i = 0; i < instanceMatrices.Count; i += maxInstancesPerBatch)
+            {
+                int batchSize = Mathf.Min(maxInstancesPerBatch, instanceMatrices.Count - i);
+                Graphics.DrawMeshInstanced(
+                    mesh,
+                    0,
+                    material,
+                    instanceMatrices.GetRange(i, batchSize).ToArray()
+                );
             }
         }
+
         public List<Boid> CreateBoidsList(int amount)
         {
             List<Boid> boids = new List<Boid>();
@@ -123,8 +166,9 @@ namespace Jobified
     [BurstCompile]
     public struct BoidJob : IJobParallelFor
     {
-        public NativeArray<BoidDataJobs> Data;
-        public NativeArray<float> Weights;
+        [ReadOnly] public NativeArray<float> Weights;
+        [ReadOnly] public NativeArray<BoidDataJobs> InputData;
+        public NativeArray<BoidDataJobs> OutputData;
         public int NumBoids;
         public float Radius;
         public float BigRadius;
@@ -157,26 +201,27 @@ namespace Jobified
             int numSep = 0;
             int numAlign = 0;
             int numCoh = 0;
-            for (int i = 0; i < NumBoids; i++)
+            BoidDataJobs currentBoid = InputData[index];
+            foreach (var boid in InputData)
             {
-                float dist = sqrmag(Data[i].pos, Data[index].pos);
+                float dist = sqrmag(boid.pos, currentBoid.pos);
                 if (dist <= Radius * Radius && dist > 0)
                 {
-                    sep += (Data[index].pos - Data[i].pos) / dist;
+                    sep += (currentBoid.pos - boid.pos) / dist;
                     numSep++;
                 }
                 if (dist <= BigRadius * BigRadius && dist > 0)
                 {
-                    align += Data[i].curDir;
+                    align += boid.curDir;
                     numAlign++;
-                    coh += Data[i].pos;
+                    coh += boid.pos;
                     numCoh++;
                 }
             }
 
             if (numCoh != 0)
             {
-                coh = math.normalize((coh / numCoh) - Data[index].pos) * Weights[0];
+                coh = math.normalize((coh / numCoh) - currentBoid.pos) * Weights[0];
             }
             if (numSep != 0)
             {
@@ -184,17 +229,16 @@ namespace Jobified
             }
             if (numAlign != 0)
             {
-                align = math.normalize((align - Data[index].curDir) / numAlign) * Weights[2];
+                align = math.normalize((align - currentBoid.curDir) / numAlign) * Weights[2];
             }
             //Apply Bounds
-            if (!IsPointInBounds(Data[index].pos, BorderCenter, BorderSize))
+            if (!IsPointInBounds(currentBoid.pos, BorderCenter, BorderSize))
             {
-                border = math.normalize(BorderCenter - Data[index].pos) * Weights[3];
+                border = math.normalize(BorderCenter - currentBoid.pos) * Weights[3];
             }
 
-            BoidDataJobs data = Data[index];
-            data.desiredDir = (coh + sep + align + border) / 4.0f;
-            Data[index] = data;
+            currentBoid.desiredDir = (coh + sep + align + border) / 4.0f;
+            OutputData[index] = currentBoid;
         }
     }
 }
